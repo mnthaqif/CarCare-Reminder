@@ -1,0 +1,8 @@
+{
+  "name": "CarCare Reminder",
+  "description": "A modern, minimalist vehicle maintenance tracker with automated reminders, service history, cost analysis, and AI-powered workshop finder and part identification.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
