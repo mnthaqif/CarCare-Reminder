@@ -1,53 +1,93 @@
 import React, { useEffect, useState } from 'react';
-import { Vehicle, Reminder } from '../types';
-import { Droplet, Battery, Disc, CircleDot, Wind, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Vehicle, Reminder, ServiceLog } from '../types';
+import { Droplet, Battery, Disc, CircleDot, Wind, AlertCircle, CheckCircle2, FlaskConical, Thermometer, Settings, Check } from 'lucide-react';
 import { getCareTips } from '../services/geminiService';
+import { AddServiceForm } from './AddServiceForm';
 
 interface DashboardProps {
   vehicle: Vehicle;
+  onAddService?: (log: ServiceLog) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ vehicle }) => {
+// Maintenance Rules (Months, KM)
+const MAINTENANCE_SCHEDULE = [
+  { type: 'Oil Change', months: 6, km: 10000, icon: 'oil' },
+  { type: 'Tire Rotation', months: 6, km: 10000, icon: 'tire' },
+  { type: 'Cabin Air Filter', months: 12, km: 24000, icon: 'filter' },
+  { type: 'Engine Air Filter', months: 36, km: 48000, icon: 'filter' },
+  { type: 'Brake Fluid', months: 24, km: 40000, icon: 'fluid' },
+  { type: 'Coolant Flush', months: 60, km: 100000, icon: 'fluid' },
+  { type: 'Transmission Fluid', months: 48, km: 96000, icon: 'fluid' },
+  { type: 'Spark Plugs', months: 60, km: 100000, icon: 'other' },
+  { type: 'Battery Replacement', months: 36, km: 0, icon: 'battery' }, // Time based mostly
+];
+
+export const Dashboard: React.FC<DashboardProps> = ({ vehicle, onAddService }) => {
   const [tips, setTips] = useState<string>('');
   const [loadingTips, setLoadingTips] = useState(false);
+  const [completingTask, setCompletingTask] = useState<Reminder | null>(null);
 
-  // Simulated logic to generate reminders based on mileage/history
-  // In a real app, this would calculate difference from last service log
+  // Generate reminders based on Purchase Date OR Last Service
   const generateReminders = (v: Vehicle): Reminder[] => {
-    const lastOil = v.history.find(h => h.type.includes('Oil'))?.mileage || 0;
-    const oilDue = lastOil + 10000;
-    const oilProgress = Math.min(100, Math.max(0, ((v.mileage - lastOil) / 10000) * 100));
+    const today = new Date();
+    // Default to a guess if purchase date is missing (Jan 1st of model year)
+    const purchaseDate = v.purchaseDate ? new Date(v.purchaseDate) : new Date(v.year, 0, 1);
+    
+    return MAINTENANCE_SCHEDULE.map((item, index) => {
+      // Find last service of this type
+      const lastService = v.history.find(h => h.type.includes(item.type));
+      
+      let nextDueDate: Date;
+      let nextDueKm: number;
+      let progress = 0;
+      let isTimeBased = false;
 
-    const lastBrake = v.history.find(h => h.type.includes('Brake'))?.mileage || 0;
-    const brakeDue = lastBrake + 40000;
-    const brakeProgress = Math.min(100, Math.max(0, ((v.mileage - lastBrake) / 40000) * 100));
+      // 1. Calculate Next Due Date (Time based)
+      const lastDate = lastService ? new Date(lastService.date) : purchaseDate;
+      nextDueDate = new Date(lastDate);
+      nextDueDate.setMonth(nextDueDate.getMonth() + item.months);
 
-    return [
-      {
-        id: 'r1',
-        title: 'Oil Change',
-        dueMileage: oilDue,
-        status: oilProgress > 90 ? 'soon' : (oilProgress > 100 ? 'overdue' : 'ok'),
-        percentage: oilProgress,
-        icon: 'oil'
-      },
-      {
-        id: 'r2',
-        title: 'Brake Check',
-        dueMileage: brakeDue,
-        status: brakeProgress > 90 ? 'soon' : 'ok',
-        percentage: brakeProgress,
-        icon: 'brake'
-      },
-      {
-        id: 'r3',
-        title: 'Tire Rotation',
-        dueMileage: v.mileage + 3000, // Mock
-        status: 'ok',
-        percentage: 60,
-        icon: 'tire'
+      // 2. Calculate Next Due Mileage (Distance based)
+      const lastKm = lastService ? lastService.mileage : 0;
+      nextDueKm = lastKm + item.km;
+
+      // 3. Determine status based on which comes first or if KM is 0 (time only)
+      const monthsDiff = (nextDueDate.getTime() - today.getTime()) / (1000 * 3600 * 24 * 30);
+      const kmDiff = nextDueKm - v.mileage;
+
+      // Calculate progress (0 to 100%)
+      // Time progress
+      const totalMonths = item.months;
+      const elapsedMonths = totalMonths - monthsDiff;
+      const timeProgress = (elapsedMonths / totalMonths) * 100;
+
+      // Km progress
+      const kmProgress = item.km > 0 ? ((v.mileage - lastKm) / item.km) * 100 : 0;
+
+      // Use the higher progress to determine urgency
+      progress = Math.max(timeProgress, kmProgress);
+      
+      // If item is pure time based (km = 0)
+      if (item.km === 0) {
+        isTimeBased = true;
+        progress = timeProgress;
       }
-    ];
+
+      let status: 'ok' | 'soon' | 'overdue' = 'ok';
+      if (progress >= 100) status = 'overdue';
+      else if (progress >= 85) status = 'soon';
+
+      return {
+        id: `rem-${index}`,
+        title: item.type,
+        dueMileage: item.km > 0 ? nextDueKm : 0,
+        dueDate: nextDueDate.toISOString().split('T')[0],
+        status,
+        percentage: Math.min(100, Math.max(0, progress)),
+        icon: item.icon as any,
+        isTimeBased: item.km === 0 || (timeProgress > kmProgress)
+      };
+    }).sort((a, b) => b.percentage - a.percentage); // Sort by urgency
   };
 
   const reminders = generateReminders(vehicle);
@@ -76,7 +116,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ vehicle }) => {
         </div>
         <div className="flex items-center gap-2 text-sm text-blue-100 bg-blue-900/20 w-fit px-3 py-1 rounded-full backdrop-blur-sm">
           <CheckCircle2 size={14} />
-          <span>Condition: Good</span>
+          <span>Purchase Date: {vehicle.purchaseDate || `${vehicle.year}-01-01`}</span>
         </div>
       </div>
 
@@ -84,11 +124,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ vehicle }) => {
       <div>
         <h3 className="text-slate-800 font-bold text-lg mb-4 flex items-center gap-2">
           <AlertCircle size={18} className="text-orange-500" />
-          Upcoming Service
+          Maintenance Schedule
         </h3>
         <div className="grid grid-cols-1 gap-3">
           {reminders.map(reminder => (
-            <ReminderCard key={reminder.id} reminder={reminder} currentMileage={vehicle.mileage} />
+            <ReminderCard 
+              key={reminder.id} 
+              reminder={reminder} 
+              currentMileage={vehicle.mileage} 
+              onMarkDone={() => setCompletingTask(reminder)}
+            />
           ))}
         </div>
       </div>
@@ -110,11 +155,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ vehicle }) => {
           </div>
         )}
       </div>
+
+      {/* Complete Task Modal */}
+      {completingTask && onAddService && (
+        <AddServiceForm 
+          onClose={() => setCompletingTask(null)}
+          onSubmit={(log) => {
+             onAddService(log);
+             setCompletingTask(null);
+          }}
+          initialType={completingTask.title}
+          initialMileage={vehicle.mileage}
+        />
+      )}
     </div>
   );
 };
 
-const ReminderCard: React.FC<{ reminder: Reminder, currentMileage: number }> = ({ reminder, currentMileage }) => {
+interface ReminderCardProps {
+  reminder: Reminder;
+  currentMileage: number;
+  onMarkDone: () => void;
+}
+
+const ReminderCard: React.FC<ReminderCardProps> = ({ reminder, currentMileage, onMarkDone }) => {
   const isUrgent = reminder.status === 'soon' || reminder.status === 'overdue';
   
   const getIcon = () => {
@@ -123,7 +187,9 @@ const ReminderCard: React.FC<{ reminder: Reminder, currentMileage: number }> = (
       case 'brake': return <Disc size={20} />;
       case 'battery': return <Battery size={20} />;
       case 'tire': return <CircleDot size={20} />;
-      default: return <Wind size={20} />;
+      case 'filter': return <Wind size={20} />;
+      case 'fluid': return <FlaskConical size={20} />;
+      default: return <Settings size={20} />;
     }
   };
 
@@ -145,8 +211,19 @@ const ReminderCard: React.FC<{ reminder: Reminder, currentMileage: number }> = (
 
   const distRemaining = reminder.dueMileage - currentMileage;
 
+  // Format the due text
+  let dueText = '';
+  if (reminder.status === 'overdue') {
+      dueText = 'Overdue!';
+  } else if (reminder.isTimeBased && reminder.dueDate) {
+      const date = new Date(reminder.dueDate);
+      dueText = `Due ${date.toLocaleDateString()}`;
+  } else {
+      dueText = `${distRemaining.toLocaleString()} km left`;
+  }
+
   return (
-    <div className={`p-4 rounded-2xl border ${getColor()} shadow-sm transition-transform active:scale-98`}>
+    <div className={`p-4 rounded-2xl border ${getColor()} shadow-sm transition-transform active:scale-99`}>
       <div className="flex items-center gap-4 mb-3">
         <div className={`p-3 rounded-full ${isUrgent ? 'bg-white' : 'bg-blue-50'}`}>
           {getIcon()}
@@ -155,7 +232,7 @@ const ReminderCard: React.FC<{ reminder: Reminder, currentMileage: number }> = (
           <div className="flex justify-between items-center mb-1">
             <h4 className="font-semibold text-slate-800">{reminder.title}</h4>
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isUrgent ? 'bg-white/50' : 'bg-slate-100 text-slate-500'}`}>
-              {distRemaining > 0 ? `${distRemaining} km left` : `${Math.abs(distRemaining)} km overdue`}
+              {dueText}
             </span>
           </div>
           <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
@@ -165,6 +242,13 @@ const ReminderCard: React.FC<{ reminder: Reminder, currentMileage: number }> = (
             />
           </div>
         </div>
+        <button 
+           onClick={(e) => { e.stopPropagation(); onMarkDone(); }}
+           className={`p-2 rounded-full hover:bg-black/5 transition-colors ${isUrgent ? 'text-red-600' : 'text-slate-400'}`}
+           title="Mark as Done"
+        >
+          <Check size={20} />
+        </button>
       </div>
     </div>
   );

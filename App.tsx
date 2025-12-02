@@ -14,10 +14,11 @@ const INITIAL_VEHICLES: Vehicle[] = [
     name: 'Toyota Camry',
     year: 2019,
     mileage: 45200,
+    purchaseDate: '2019-05-20',
     history: [
       { id: 'l1', date: '2023-10-15', type: 'Oil Change', cost: 65, mileage: 40000, notes: 'Synthetic oil' },
       { id: 'l2', date: '2023-06-20', type: 'Tire Rotation', cost: 40, mileage: 35000 },
-      { id: 'l3', date: '2023-01-10', type: 'Brake Pads', cost: 250, mileage: 30000, notes: 'Front pads replaced' },
+      { id: 'l3', date: '2023-01-10', type: 'Brake Check', cost: 250, mileage: 30000, notes: 'Front pads replaced' },
     ]
   },
   {
@@ -25,6 +26,7 @@ const INITIAL_VEHICLES: Vehicle[] = [
     name: 'Honda CR-V',
     year: 2021,
     mileage: 22100,
+    purchaseDate: '2021-08-15',
     history: [
       { id: 'l4', date: '2024-01-05', type: 'Oil Change', cost: 70, mileage: 20000 },
     ]
@@ -89,7 +91,7 @@ export default function App() {
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto no-scrollbar p-4 pb-24 relative">
           {activeTab === 'dashboard' && (
-            <Dashboard vehicle={activeVehicle} />
+            <Dashboard vehicle={activeVehicle} onAddService={handleAddService} />
           )}
           {activeTab === 'history' && (
             <ServiceHistory vehicle={activeVehicle} onAddService={handleAddService} />

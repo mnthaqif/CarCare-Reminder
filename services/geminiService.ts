@@ -51,7 +51,7 @@ export const identifyCarPart = async (base64Image: string, vehicleName: string):
             Provide:
             1. The name of the part.
             2. Estimated lifespan in km or years.
-            3. A rough estimated price range for replacement.
+            3. A rough estimated price range for replacement (parts & labor).
             Keep it concise and formatted as a clear list.`
           }
         ]

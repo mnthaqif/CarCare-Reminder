@@ -15,6 +15,7 @@ export const VehicleSelector: React.FC<VehicleSelectorProps> = ({ vehicles, acti
   const [newCarName, setNewCarName] = useState('');
   const [newCarYear, setNewCarYear] = useState('');
   const [newCarMileage, setNewCarMileage] = useState('');
+  const [newCarPurchaseDate, setNewCarPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +24,7 @@ export const VehicleSelector: React.FC<VehicleSelectorProps> = ({ vehicles, acti
       name: newCarName,
       year: Number(newCarYear),
       mileage: Number(newCarMileage),
+      purchaseDate: newCarPurchaseDate,
       history: []
     });
     setIsAdding(false);
@@ -77,6 +79,19 @@ export const VehicleSelector: React.FC<VehicleSelectorProps> = ({ vehicles, acti
                 />
               </div>
             </div>
+            
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase">Purchase Date</label>
+              <input 
+                type="date"
+                className="w-full mt-1 p-3 bg-slate-50 rounded-xl border border-slate-200"
+                value={newCarPurchaseDate}
+                onChange={e => setNewCarPurchaseDate(e.target.value)}
+                required
+              />
+              <p className="text-[10px] text-slate-400 mt-1">Used to calculate maintenance schedules</p>
+            </div>
+
             <div className="flex gap-2 pt-2">
               <button 
                 type="button" 

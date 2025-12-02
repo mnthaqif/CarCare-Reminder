@@ -12,6 +12,7 @@ export interface Vehicle {
   name: string;
   year: number;
   mileage: number;
+  purchaseDate?: string; // ISO date string YYYY-MM-DD
   history: ServiceLog[];
 }
 
@@ -22,7 +23,8 @@ export interface Reminder {
   dueDate?: string; // ISO date string
   status: 'ok' | 'soon' | 'overdue';
   percentage: number; // 0-100 for progress bar
-  icon: 'oil' | 'battery' | 'brake' | 'tire' | 'filter' | 'other';
+  icon: 'oil' | 'battery' | 'brake' | 'tire' | 'filter' | 'fluid' | 'other';
+  isTimeBased?: boolean;
 }
 
 export interface Workshop {
