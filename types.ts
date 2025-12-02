@@ -5,6 +5,13 @@ export interface ServiceLog {
   cost: number;
   mileage: number;
   notes?: string;
+  parts?: ServicePart[];
+}
+
+export interface ServicePart {
+  name: string;
+  brand?: string;
+  cost?: number;
 }
 
 export interface Vehicle {
