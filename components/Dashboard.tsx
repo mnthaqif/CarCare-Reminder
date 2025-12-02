@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Vehicle, Reminder, ServiceLog } from '../types';
-import { Droplet, Battery, Disc, CircleDot, Wind, AlertCircle, CheckCircle2, FlaskConical, Thermometer, Settings, Check } from 'lucide-react';
+import { Droplet, Battery, Disc, CircleDot, Wind, AlertCircle, CheckCircle2, FlaskConical, Settings, Check, Clock, CalendarDays, Gauge } from 'lucide-react';
 import { getCareTips } from '../services/geminiService';
 import { AddServiceForm } from './AddServiceForm';
 
@@ -13,13 +13,14 @@ interface DashboardProps {
 const MAINTENANCE_SCHEDULE = [
   { type: 'Oil Change', months: 6, km: 10000, icon: 'oil' },
   { type: 'Tire Rotation', months: 6, km: 10000, icon: 'tire' },
+  { type: 'Brake Pads', months: 0, km: 30000, icon: 'brake' }, // Distance based mostly
+  { type: 'Battery Replacement', months: 36, km: 0, icon: 'battery' }, // Time based (3 years)
   { type: 'Cabin Air Filter', months: 12, km: 24000, icon: 'filter' },
   { type: 'Engine Air Filter', months: 36, km: 48000, icon: 'filter' },
   { type: 'Brake Fluid', months: 24, km: 40000, icon: 'fluid' },
   { type: 'Coolant Flush', months: 60, km: 100000, icon: 'fluid' },
   { type: 'Transmission Fluid', months: 48, km: 96000, icon: 'fluid' },
   { type: 'Spark Plugs', months: 60, km: 100000, icon: 'other' },
-  { type: 'Battery Replacement', months: 36, km: 0, icon: 'battery' }, // Time based mostly
 ];
 
 export const Dashboard: React.FC<DashboardProps> = ({ vehicle, onAddService }) => {
@@ -37,57 +38,109 @@ export const Dashboard: React.FC<DashboardProps> = ({ vehicle, onAddService }) =
       // Find last service of this type
       const lastService = v.history.find(h => h.type.includes(item.type));
       
-      let nextDueDate: Date;
-      let nextDueKm: number;
-      let progress = 0;
-      let isTimeBased = false;
-
-      // 1. Calculate Next Due Date (Time based)
+      // --- TIME CALCULATION ---
       const lastDate = lastService ? new Date(lastService.date) : purchaseDate;
-      nextDueDate = new Date(lastDate);
-      nextDueDate.setMonth(nextDueDate.getMonth() + item.months);
-
-      // 2. Calculate Next Due Mileage (Distance based)
-      const lastKm = lastService ? lastService.mileage : 0;
-      nextDueKm = lastKm + item.km;
-
-      // 3. Determine status based on which comes first or if KM is 0 (time only)
-      const monthsDiff = (nextDueDate.getTime() - today.getTime()) / (1000 * 3600 * 24 * 30);
-      const kmDiff = nextDueKm - v.mileage;
-
-      // Calculate progress (0 to 100%)
-      // Time progress
-      const totalMonths = item.months;
-      const elapsedMonths = totalMonths - monthsDiff;
-      const timeProgress = (elapsedMonths / totalMonths) * 100;
-
-      // Km progress
-      const kmProgress = item.km > 0 ? ((v.mileage - lastKm) / item.km) * 100 : 0;
-
-      // Use the higher progress to determine urgency
-      progress = Math.max(timeProgress, kmProgress);
+      const nextDueDate = new Date(lastDate);
       
-      // If item is pure time based (km = 0)
-      if (item.km === 0) {
-        isTimeBased = true;
-        progress = timeProgress;
+      if (item.months > 0) {
+        nextDueDate.setMonth(nextDueDate.getMonth() + item.months);
+      } else {
+        nextDueDate.setFullYear(nextDueDate.getFullYear() + 20); // Effectively never for purely mileage items
       }
 
+      // Calculate time progress
+      let timeProgress = 0;
+      let daysRemaining = 9999;
+      
+      if (item.months > 0) {
+        const totalDurationMs = item.months * 30.44 * 24 * 60 * 60 * 1000; // Approx months to ms
+        const elapsedMs = today.getTime() - lastDate.getTime();
+        timeProgress = (elapsedMs / totalDurationMs) * 100;
+        
+        const diffMs = nextDueDate.getTime() - today.getTime();
+        daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      }
+
+      // --- MILEAGE CALCULATION ---
+      let nextDueKm = 0;
+      let kmProgress = 0;
+      let kmRemaining = 999999;
+
+      if (item.km > 0) {
+        let lastKm = 0;
+        if (lastService) {
+          lastKm = lastService.mileage;
+        } else {
+          // Smart Logic: If no history, assume schedule aligns with factory intervals (e.g. 10k, 20k, 30k)
+          // We calculate the *next* milestone based on current mileage.
+          // e.g. Current 45k, Interval 10k -> Implied last 40k. Next due 50k.
+          const currentIntervalCount = Math.floor(v.mileage / item.km);
+          lastKm = currentIntervalCount * item.km;
+        }
+        
+        nextDueKm = lastKm + item.km;
+        kmRemaining = nextDueKm - v.mileage;
+        
+        // Progress based on the interval distance
+        const distTraveledInInterval = v.mileage - lastKm;
+        kmProgress = (distTraveledInInterval / item.km) * 100;
+      }
+
+      // --- STATUS DETERMINATION ---
+      // Determine if Time or Mileage is the "limiting factor" (which one triggers first)
+      // If one is "Overdue", that takes precedence.
+      
       let status: 'ok' | 'soon' | 'overdue' = 'ok';
-      if (progress >= 100) status = 'overdue';
-      else if (progress >= 85) status = 'soon';
+      let isTimeBasedTrigger = false;
+
+      // Check Overdue
+      if ((item.km > 0 && kmRemaining < 0) || (item.months > 0 && daysRemaining < 0)) {
+        status = 'overdue';
+        // Determine which is MORE overdue for the trigger flag
+        // (Just a heuristic to show the right icon)
+        if (item.km === 0) isTimeBasedTrigger = true;
+        else if (item.months === 0) isTimeBasedTrigger = false;
+        else isTimeBasedTrigger = (daysRemaining / 30) < (kmRemaining / item.km); // roughly comparing ratios
+      } 
+      // Check Soon (Within 1000km OR 30 days)
+      else if ((item.km > 0 && kmRemaining < 1000) || (item.months > 0 && daysRemaining < 30)) {
+        status = 'soon';
+        if (item.km > 0 && kmRemaining < 1000) isTimeBasedTrigger = false;
+        else isTimeBasedTrigger = true;
+      }
+      // Status OK
+      else {
+        // Just determine which progress bar to show based on which is higher
+        isTimeBasedTrigger = timeProgress > kmProgress;
+        if (item.km === 0) isTimeBasedTrigger = true;
+        if (item.months === 0) isTimeBasedTrigger = false;
+      }
+
+      // Final Progress for UI
+      // If purely time based (km=0), use timeProgress
+      // If purely km based (months=0), use kmProgress
+      // Otherwise use the higher of the two
+      let finalProgress = 0;
+      if (item.km === 0) finalProgress = timeProgress;
+      else if (item.months === 0) finalProgress = kmProgress;
+      else finalProgress = Math.max(timeProgress, kmProgress);
 
       return {
         id: `rem-${index}`,
         title: item.type,
-        dueMileage: item.km > 0 ? nextDueKm : 0,
-        dueDate: nextDueDate.toISOString().split('T')[0],
+        dueMileage: nextDueKm,
+        dueDate: item.months > 0 ? nextDueDate.toISOString().split('T')[0] : undefined,
         status,
-        percentage: Math.min(100, Math.max(0, progress)),
+        percentage: Math.min(100, Math.max(0, finalProgress)),
         icon: item.icon as any,
-        isTimeBased: item.km === 0 || (timeProgress > kmProgress)
+        isTimeBased: isTimeBasedTrigger
       };
-    }).sort((a, b) => b.percentage - a.percentage); // Sort by urgency
+    }).sort((a, b) => {
+      // Sort priority: Overdue > Soon > High Percentage
+      const scoreA = (a.status === 'overdue' ? 200 : a.status === 'soon' ? 100 : 0) + a.percentage;
+      const scoreB = (b.status === 'overdue' ? 200 : b.status === 'soon' ? 100 : 0) + b.percentage;
+      return scoreB - scoreA;
+    });
   };
 
   const reminders = generateReminders(vehicle);
@@ -209,17 +262,31 @@ const ReminderCard: React.FC<ReminderCardProps> = ({ reminder, currentMileage, o
     }
   };
 
-  const distRemaining = reminder.dueMileage - currentMileage;
-
-  // Format the due text
+  const distRemaining = reminder.dueMileage > 0 ? reminder.dueMileage - currentMileage : 0;
+  
+  // Format the due text intelligently
   let dueText = '';
+  const now = new Date();
+  
   if (reminder.status === 'overdue') {
-      dueText = 'Overdue!';
-  } else if (reminder.isTimeBased && reminder.dueDate) {
-      const date = new Date(reminder.dueDate);
-      dueText = `Due ${date.toLocaleDateString()}`;
+      if (reminder.isTimeBased && reminder.dueDate) {
+          const due = new Date(reminder.dueDate);
+          const diffDays = Math.ceil((now.getTime() - due.getTime()) / (1000 * 3600 * 24));
+          dueText = `Overdue by ${diffDays} days`;
+      } else {
+          dueText = `Overdue by ${Math.abs(distRemaining).toLocaleString()} km`;
+      }
   } else {
-      dueText = `${distRemaining.toLocaleString()} km left`;
+      // Not overdue
+      if (reminder.isTimeBased && reminder.dueDate) {
+          const due = new Date(reminder.dueDate);
+          const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 3600 * 24));
+          
+          if (diffDays <= 30) dueText = `Due in ${diffDays} days`;
+          else dueText = `Due ${due.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      } else {
+          dueText = `${distRemaining.toLocaleString()} km left`;
+      }
   }
 
   return (
@@ -231,9 +298,16 @@ const ReminderCard: React.FC<ReminderCardProps> = ({ reminder, currentMileage, o
         <div className="flex-1">
           <div className="flex justify-between items-center mb-1">
             <h4 className="font-semibold text-slate-800">{reminder.title}</h4>
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isUrgent ? 'bg-white/50' : 'bg-slate-100 text-slate-500'}`}>
-              {dueText}
-            </span>
+            <div className="flex items-center gap-2">
+              {reminder.isTimeBased ? (
+                 <CalendarDays size={12} className={isUrgent ? "text-red-400" : "text-slate-400"} />
+              ) : (
+                 <Gauge size={12} className={isUrgent ? "text-red-400" : "text-slate-400"} />
+              )}
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isUrgent ? 'bg-white/50' : 'bg-slate-100 text-slate-500'}`}>
+                {dueText}
+              </span>
+            </div>
           </div>
           <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
             <div 
